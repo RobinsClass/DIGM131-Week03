@@ -95,8 +95,83 @@ class TestAssignment03(unittest.TestCase):
         return tree
 
     # ------------------------------------------------------------------
+    # Multi-file helpers
+    # ------------------------------------------------------------------
+    def _require_source_for(self, filename):
+        source = read_source(filename)
+        self.assertIsNotNone(
+            source,
+            f"Could not find '{filename}'. Make sure it exists in the same\n"
+            f"  folder as this test."
+        )
+        return source
+
+    def _require_tree_for(self, filename):
+        tree = parse_file_ast(filename)
+        self.assertIsNotNone(
+            tree,
+            f"'{filename}' has a SyntaxError or does not exist.\n"
+            f"  Open it in your editor and fix any errors first!"
+        )
+        return tree
+
+    # ------------------------------------------------------------------
     # Tests
     # ------------------------------------------------------------------
+    def test_todos_completed(self):
+        """Check that you've replaced all TODO placeholders with your own code in both files."""
+        for filename in [FUNCTIONS_FILE, MAIN_FILE]:
+            source = self._require_source_for(filename)
+            todo_count = len(re.findall(r'#\s*TODO', source))
+            self.assertEqual(
+                todo_count, 0,
+                f"Found {todo_count} TODO comment(s) still in '{filename}'.\n"
+                f"  Replace each TODO section with your own code."
+            )
+
+    def test_no_pass_only_functions(self):
+        """Check that functions have real implementations, not just 'pass', in both files."""
+        for filename in [FUNCTIONS_FILE, MAIN_FILE]:
+            tree = self._require_tree_for(filename)
+            pass_only = []
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    body = node.body
+                    real_body = body
+                    if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0].value, 'value', None), str):
+                        real_body = body[1:]
+                    if len(real_body) == 0 or (len(real_body) == 1 and isinstance(real_body[0], ast.Pass)):
+                        pass_only.append(node.name)
+            self.assertEqual(
+                len(pass_only), 0,
+                f"These functions in '{filename}' are still empty (just 'pass'):\n"
+                f"  {', '.join(pass_only)}\n"
+                f"  Add your implementation to each one!"
+            )
+
+    def test_functions_have_cmds_calls(self):
+        """Check that functions in scene_functions.py contain actual Maya cmds calls."""
+        tree = self._require_tree_for(FUNCTIONS_FILE)
+        source = self._require_source_for(FUNCTIONS_FILE)
+        funcs = get_function_defs(tree)
+        empty_funcs = []
+        for f in funcs:
+            # Get the source lines for this function
+            func_has_cmds = False
+            for node in ast.walk(f):
+                if isinstance(node, ast.Attribute):
+                    if isinstance(node.value, ast.Name) and node.value.id in ("cmds", "mc"):
+                        func_has_cmds = True
+                        break
+            if not func_has_cmds:
+                empty_funcs.append(f.name)
+        self.assertEqual(
+            len(empty_funcs), 0,
+            f"These functions in '{FUNCTIONS_FILE}' don't call any cmds commands:\n"
+            f"  {', '.join(empty_funcs)}\n"
+            f"  Each function should use maya.cmds to create or modify objects."
+        )
+
     def test_both_files_exist_and_parse(self):
         """Check that both scene_functions.py and main_scene.py exist and have no syntax errors."""
         for fname in [FUNCTIONS_FILE, MAIN_FILE]:
