@@ -129,24 +129,22 @@ class TestAssignment03(unittest.TestCase):
                 f"  Replace each TODO section with your own code."
             )
 
-    def test_no_pass_only_functions(self):
-        """Check that functions have real implementations, not just 'pass', in both files."""
+    def test_no_pass_in_functions(self):
+        """Check that functions have real implementations and no leftover 'pass' statements."""
         for filename in [FUNCTIONS_FILE, MAIN_FILE]:
             tree = self._require_tree_for(filename)
-            pass_only = []
+            has_pass = []
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    body = node.body
-                    real_body = body
-                    if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0].value, 'value', None), str):
-                        real_body = body[1:]
-                    if len(real_body) == 0 or (len(real_body) == 1 and isinstance(real_body[0], ast.Pass)):
-                        pass_only.append(node.name)
+                    for child in ast.walk(node):
+                        if isinstance(child, ast.Pass):
+                            has_pass.append(node.name)
+                            break
             self.assertEqual(
-                len(pass_only), 0,
-                f"These functions in '{filename}' are still empty (just 'pass'):\n"
-                f"  {', '.join(pass_only)}\n"
-                f"  Add your implementation to each one!"
+                len(has_pass), 0,
+                f"These functions in '{filename}' still contain 'pass':\n"
+                f"  {', '.join(has_pass)}\n"
+                f"  Remove the 'pass' and add your implementation!"
             )
 
     def test_functions_have_cmds_calls(self):
@@ -243,18 +241,26 @@ class TestAssignment03(unittest.TestCase):
         )
 
     def test_docstrings_have_returns_section(self):
-        """Check that functions with return values document them with a Returns: section."""
+        """Check that implemented functions with return values have a Returns: section in their docstring."""
         tree = self._require_tree(FUNCTIONS_FILE)
         funcs = get_function_defs(tree)
         missing_returns = []
 
         for f in funcs:
+            # Only check functions that actually return something (not skeleton pass-only)
             if not has_return(f):
                 continue
             doc = get_docstring(f)
             if doc and "returns:" not in doc.lower() and "return:" not in doc.lower():
                 missing_returns.append(f.name)
 
+        # Must have at least 3 functions with actual returns to pass
+        returning_funcs = [f for f in funcs if has_return(f)]
+        self.assertGreaterEqual(
+            len(returning_funcs), 3,
+            f"Only {len(returning_funcs)} function(s) have return statements.\n"
+            f"  At least 3 functions should return the names of objects they create."
+        )
         self.assertEqual(
             len(missing_returns), 0,
             f"These functions return a value but have no 'Returns:' section:\n"
@@ -322,18 +328,51 @@ class TestAssignment03(unittest.TestCase):
         )
 
     def test_functions_are_used_in_main(self):
-        """Check that main_scene.py actually calls functions (not just imports them)."""
+        """Check that main_scene.py calls at least 5 of your functions to build the scene."""
         tree = self._require_tree(MAIN_FILE)
-        calls = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-        ]
-        # Filter out built-in/common calls to count meaningful ones
+        source = self._require_source(MAIN_FILE)
+        # Count non-comment function calls that look like sf.xxx or scene_functions.xxx
+        call_count = 0
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                # Count attribute calls like sf.create_tree()
+                if isinstance(node.func, ast.Attribute):
+                    call_count += 1
+                # Count direct calls like create_tree()
+                elif isinstance(node.func, ast.Name) and node.func.id not in ("print", "range", "len", "int", "float", "str"):
+                    call_count += 1
         self.assertGreaterEqual(
-            len(calls), 3,
-            f"'{MAIN_FILE}' has very few function calls.\n"
-            f"  Your main scene should use the functions from your library\n"
-            f"  to build a scene. Call your functions to create objects!"
+            call_count, 8,
+            f"'{MAIN_FILE}' has only {call_count} function call(s).\n"
+            f"  Your main scene should call your library functions multiple\n"
+            f"  times to build a scene with 15+ objects."
+        )
+
+    def test_functions_have_return_statements(self):
+        """Check that functions in scene_functions.py return the names of created objects."""
+        tree = self._require_tree(FUNCTIONS_FILE)
+        funcs = get_function_defs(tree)
+        no_return = [f.name for f in funcs if not has_return(f)]
+        self.assertEqual(
+            len(no_return), 0,
+            f"These functions don't return anything:\n"
+            f"  {', '.join(no_return)}\n"
+            f"  Each function should return the name(s) of the objects it creates."
+        )
+
+    def test_main_scene_has_enough_code(self):
+        """Check that main_scene.py has enough code to build a real scene (not just the skeleton)."""
+        tree = self._require_tree(MAIN_FILE)
+        meaningful = 0
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AugAssign, ast.Call,
+                                 ast.For, ast.While, ast.If)):
+                meaningful += 1
+        self.assertGreaterEqual(
+            meaningful, 12,
+            f"'{MAIN_FILE}' has only {meaningful} meaningful statements.\n"
+            f"  Build out your scene by calling your library functions\n"
+            f"  to create at least 15 objects."
         )
 
 
